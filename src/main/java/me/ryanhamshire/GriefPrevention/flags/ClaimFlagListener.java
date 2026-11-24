@@ -1,7 +1,9 @@
 package me.ryanhamshire.GriefPrevention.flags;
 
 import me.ryanhamshire.GriefPrevention.Claim;
+import me.ryanhamshire.GriefPrevention.ClaimPermission;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
+import me.ryanhamshire.GriefPrevention.crystal.CrystalType;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
@@ -11,9 +13,16 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Animals;
+import org.bukkit.entity.AreaEffectCloud;
+import org.bukkit.entity.Enemy;
 import org.bukkit.entity.Entity;
-import org.bukkit.entity.Monster;
+import org.bukkit.entity.EvokerFangs;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
+import org.bukkit.entity.TNTPrimed;
+import org.bukkit.entity.Tameable;
+import org.bukkit.entity.ThrownPotion;
 import org.bukkit.entity.Wither;
 import org.bukkit.entity.WitherSkull;
 import org.bukkit.event.EventHandler;
@@ -29,12 +38,14 @@ import org.bukkit.event.block.BlockPistonExtendEvent;
 import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockSpreadEvent;
 import org.bukkit.event.block.LeavesDecayEvent;
+import org.bukkit.event.entity.AreaEffectCloudApplyEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.PotionSplashEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerBedEnterEvent;
@@ -45,8 +56,10 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.weather.LightningStrikeEvent;
+import org.bukkit.projectiles.ProjectileSource;
 
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -92,25 +105,84 @@ public class ClaimFlagListener implements Listener {
         return false;
     }
 
+    public static Long getRootClaimId(Claim claim) {
+        if (claim == null) return null;
+        return claim.parent != null ? claim.parent.getID() : claim.getID();
+    }
+
+    public static boolean isSameRootClaim(Claim a, Claim b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        Claim rootA = a.parent != null ? a.parent : a;
+        Claim rootB = b.parent != null ? b.parent : b;
+        if (rootA == rootB) return true;
+        Long idA = rootA.getID();
+        Long idB = rootB.getID();
+        return idA != null && idA.equals(idB);
+    }
+
+    public static boolean isFlightAllowedInClaim(Player player, Claim claim) {
+        if (claim == null || player == null) return false;
+        if (claim.isFlagAllowed(ClaimFlag.FLY)) return true;
+        if (GriefPrevention.instance != null && GriefPrevention.instance.crystalManager != null) {
+            Long rootId = getRootClaimId(claim);
+            if (rootId != null && GriefPrevention.instance.crystalManager.hasCrystal(rootId, CrystalType.FLIGHT)) {
+                return claim.checkPermission(player, ClaimPermission.Access, null) == null;
+            }
+        }
+        return false;
+    }
+
+    public static void handleFlagUpdated(GriefPrevention plugin, Claim claim, ClaimFlag flag, Player actor) {
+        if (plugin == null || claim == null || flag == null) return;
+        if (flag == ClaimFlag.FLY) {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                Claim pClaim = plugin.dataStore.getClaimAt(p.getLocation(), true, null);
+                if (isSameRootClaim(pClaim, claim)) {
+                    enforceFlightAtLocation(p);
+                }
+            }
+        } else if (flag == ClaimFlag.ENTRY) {
+            if (!claim.isFlagAllowed(ClaimFlag.ENTRY)) {
+                if (actor != null) {
+                    actor.sendMessage(ChatColor.translateAlternateColorCodes('&', "&6🛡 &eCampo de fuerza &cACTIVADO&e: Los intrusos no autorizados serán expulsados y bloqueados."));
+                }
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    if (p.equals(actor) || p.hasPermission("griefprevention.adminclaims") || p.hasPermission("griefprevention.claimflag.bypass")) {
+                        continue;
+                    }
+                    Claim pClaim = plugin.dataStore.getClaimAt(p.getLocation(), true, null);
+                    if (isSameRootClaim(pClaim, claim) && claim.allowAccess(p) != null) {
+                        plugin.ejectPlayer(p);
+                        p.sendMessage(ChatColor.RED + "✖ El propietario ha activado el campo de fuerza y has sido expulsado de la protección.");
+                    }
+                }
+            } else if (actor != null) {
+                actor.sendMessage(ChatColor.translateAlternateColorCodes('&', "&6🛡 &eCampo de fuerza &aDESACTIVADO&e: La entrada a la protección vuelve a ser pública."));
+            }
+        }
+    }
+
     public static void enforceFlightAtLocation(Player player) {
         if (player == null || !player.isOnline()) return;
         if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) return;
-        if (hasActiveRankFly(player)) return;
+        if (hasActiveRankFly(player) || player.hasPermission("griefprevention.infiniteflight")) return;
 
         UUID uuid = player.getUniqueId();
         Claim claim = GriefPrevention.instance.dataStore.getClaimAt(player.getLocation(), true, null);
-        boolean inFlyClaim = (claim != null && claim.isFlagAllowed(ClaimFlag.FLY));
+        boolean inFlyClaim = isFlightAllowedInClaim(player, claim);
 
         if (inFlyClaim) {
-            if (!player.getAllowFlight()) {
+            if (!player.getAllowFlight() || !flyingPlayers.contains(uuid)) {
+                boolean wasAllowed = player.getAllowFlight();
                 player.setAllowFlight(true);
                 flyingPlayers.add(uuid);
-                sendActionBar(player, ChatColor.GREEN + "✈ Modo Vuelo activado en esta protección.");
+                if (!wasAllowed) {
+                    sendActionBar(player, ChatColor.GREEN + "✈ Modo Vuelo activado en esta protección.");
+                }
             }
-        } else {
-            if (flyingPlayers.contains(uuid) || player.getAllowFlight() || player.isFlying()) {
-                revokeFlight(player, uuid);
-            }
+        } else if (flyingPlayers.contains(uuid)) {
+            revokeFlight(player, uuid);
         }
     }
 
@@ -143,7 +215,7 @@ public class ClaimFlagListener implements Listener {
 
         // Intruder detected!
         Claim fromClaim = plugin.dataStore.getClaimAt(from, true, null);
-        if (fromClaim != null && (fromClaim.getID().equals(toClaim.getID()) || (fromClaim.parent != null && fromClaim.parent.getID().equals(toClaim.getID())))) {
+        if (fromClaim != null && isSameRootClaim(fromClaim, toClaim)) {
             // Player is already inside the restricted claim -> Eject them outside!
             plugin.ejectPlayer(player);
             player.sendMessage(ChatColor.RED + "✖ Has sido expulsado fuera del terreno: El propietario ha cerrado la entrada a intrusos.");
@@ -172,24 +244,17 @@ public class ClaimFlagListener implements Listener {
         }
 
         Player player = event.getPlayer();
-        if (hasActiveRankFly(player)) return;
-
         UUID uuid = player.getUniqueId();
         Claim fromClaim = plugin.dataStore.getClaimAt(from, true, null);
         Claim toClaim = plugin.dataStore.getClaimAt(to, true, null);
 
-        // When crossing borders between different claims or wilderness
-        if (fromClaim != toClaim) {
+        // When crossing borders between different root claims or wilderness
+        if (!isSameRootClaim(fromClaim, toClaim)) {
             // Exit from previous claim
             if (fromClaim != null) {
                 String exitMsg = fromClaim.getFlag(ClaimFlag.EXIT_MESSAGE);
                 if (exitMsg != null && !exitMsg.isEmpty()) {
                     player.sendMessage(ChatColor.translateAlternateColorCodes('&', exitMsg));
-                }
-                if (toClaim == null || !toClaim.isFlagAllowed(ClaimFlag.FLY)) {
-                    if (flyingPlayers.contains(uuid)) {
-                        revokeFlight(player, uuid);
-                    }
                 }
             }
 
@@ -199,21 +264,21 @@ public class ClaimFlagListener implements Listener {
                 if (entryMsg != null && !entryMsg.isEmpty()) {
                     player.sendMessage(ChatColor.translateAlternateColorCodes('&', entryMsg));
                 }
-                if (toClaim.isFlagAllowed(ClaimFlag.FLY)) {
-                    if (player.getGameMode() == GameMode.SURVIVAL || player.getGameMode() == GameMode.ADVENTURE) {
-                        player.setAllowFlight(true);
-                        flyingPlayers.add(uuid);
-                        sendActionBar(player, ChatColor.GREEN + "✈ Modo Vuelo activado en esta protección.");
-                    }
-                }
             }
-        } else {
-            // Moving within same claim or wilderness
-            if (toClaim != null && toClaim.isFlagAllowed(ClaimFlag.FLY)) {
-                if ((player.getGameMode() == GameMode.SURVIVAL || player.getGameMode() == GameMode.ADVENTURE) && !player.getAllowFlight()) {
+        }
+
+        boolean skipFlight = hasActiveRankFly(player)
+                || player.hasPermission("griefprevention.infiniteflight")
+                || (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE);
+        if (!skipFlight) {
+            if (isFlightAllowedInClaim(player, toClaim)) {
+                if (!player.getAllowFlight() || !flyingPlayers.contains(uuid)) {
+                    boolean wasAllowed = player.getAllowFlight();
                     player.setAllowFlight(true);
                     flyingPlayers.add(uuid);
-                    sendActionBar(player, ChatColor.GREEN + "✈ Modo Vuelo activado en esta protección.");
+                    if (!wasAllowed) {
+                        sendActionBar(player, ChatColor.GREEN + "✈ Modo Vuelo activado en esta protección.");
+                    }
                 }
             } else if (flyingPlayers.contains(uuid)) {
                 revokeFlight(player, uuid);
@@ -257,6 +322,37 @@ public class ClaimFlagListener implements Listener {
         fallGraceMap.remove(uuid);
     }
 
+    private static Entity resolveDamager(Entity rawDamager) {
+        if (rawDamager instanceof Projectile projectile) {
+            ProjectileSource shooter = projectile.getShooter();
+            if (shooter instanceof Entity shooterEntity) {
+                return shooterEntity;
+            }
+        } else if (rawDamager instanceof EvokerFangs fangs) {
+            if (fangs.getOwner() != null) {
+                return fangs.getOwner();
+            }
+        } else if (rawDamager instanceof AreaEffectCloud cloud) {
+            ProjectileSource source = cloud.getSource();
+            if (source instanceof Entity sourceEntity) {
+                return sourceEntity;
+            }
+        } else if (rawDamager instanceof TNTPrimed tnt) {
+            if (tnt.getSource() != null) {
+                return tnt.getSource();
+            }
+        } else if (rawDamager instanceof Tameable tameable && tameable.isTamed()) {
+            if (tameable.getOwner() instanceof Entity ownerEntity) {
+                return ownerEntity;
+            }
+        }
+        return rawDamager;
+    }
+
+    private static boolean isHostileEntity(Entity entity) {
+        return entity instanceof Enemy;
+    }
+
     /* ----------------------------------------------------
      *  FLAG: PVP (Allow/Deny + Combat flight cancel)
      * ---------------------------------------------------- */
@@ -265,19 +361,17 @@ public class ClaimFlagListener implements Listener {
         if (!(event.getEntity() instanceof Player)) return;
         Player defender = (Player) event.getEntity();
 
-        Player attacker = null;
-        if (event.getDamager() instanceof Player) {
-            attacker = (Player) event.getDamager();
-        }
+        Entity resolved = resolveDamager(event.getDamager());
+        Player attacker = (resolved instanceof Player) ? (Player) resolved : null;
 
-        if (attacker != null) {
-            Claim claim = plugin.dataStore.getClaimAt(defender.getLocation(), true, null);
-            if (claim != null) {
-                if (!claim.isFlagAllowed(ClaimFlag.PVP)) {
-                    attacker.sendMessage(ChatColor.RED + "✖ El combate PvP está desactivado en esta protección.");
-                    event.setCancelled(true);
-                    return;
-                }
+        if (attacker != null && !attacker.equals(defender)) {
+            Claim defenderClaim = plugin.dataStore.getClaimAt(defender.getLocation(), true, null);
+            Claim attackerClaim = plugin.dataStore.getClaimAt(attacker.getLocation(), true, null);
+            if ((defenderClaim != null && !defenderClaim.isFlagAllowed(ClaimFlag.PVP))
+                    || (attackerClaim != null && !attackerClaim.isFlagAllowed(ClaimFlag.PVP))) {
+                attacker.sendMessage(ChatColor.RED + "✖ El combate PvP está desactivado en esta protección.");
+                event.setCancelled(true);
+                return;
             }
 
             // In combat: disable fly immediately to prevent combat flying
@@ -293,15 +387,73 @@ public class ClaimFlagListener implements Listener {
     }
 
     /* ----------------------------------------------------
-     *  FLAG: MONSTER_DAMAGE
+     *  FLAG: MONSTER_DAMAGE (Melee, Projectiles, Potions & Indirect)
      * ---------------------------------------------------- */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onMonsterDamage(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof Player)) return;
-        if (event.getDamager() instanceof Monster) {
+        Entity source = resolveDamager(event.getDamager());
+        if (isHostileEntity(source)) {
             Claim claim = plugin.dataStore.getClaimAt(event.getEntity().getLocation(), true, null);
             if (claim != null && !claim.isFlagAllowed(ClaimFlag.MONSTER_DAMAGE)) {
                 event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPotionSplash(PotionSplashEvent event) {
+        ThrownPotion potion = event.getPotion();
+        ProjectileSource shooter = potion.getShooter();
+        if (shooter instanceof Enemy) {
+            for (LivingEntity affected : event.getAffectedEntities()) {
+                if (affected instanceof Player) {
+                    Claim claim = plugin.dataStore.getClaimAt(affected.getLocation(), true, null);
+                    if (claim != null && !claim.isFlagAllowed(ClaimFlag.MONSTER_DAMAGE)) {
+                        event.setIntensity(affected, 0.0);
+                    }
+                }
+            }
+        } else if (shooter instanceof Player attacker) {
+            Claim attackerClaim = plugin.dataStore.getClaimAt(attacker.getLocation(), true, null);
+            for (LivingEntity affected : event.getAffectedEntities()) {
+                if (affected instanceof Player defender && !defender.equals(attacker)) {
+                    Claim defenderClaim = plugin.dataStore.getClaimAt(defender.getLocation(), true, null);
+                    if ((defenderClaim != null && !defenderClaim.isFlagAllowed(ClaimFlag.PVP))
+                            || (attackerClaim != null && !attackerClaim.isFlagAllowed(ClaimFlag.PVP))) {
+                        event.setIntensity(defender, 0.0);
+                    }
+                }
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onAreaEffectCloudApply(AreaEffectCloudApplyEvent event) {
+        ProjectileSource source = event.getEntity().getSource();
+        if (source instanceof Enemy) {
+            Iterator<LivingEntity> it = event.getAffectedEntities().iterator();
+            while (it.hasNext()) {
+                LivingEntity affected = it.next();
+                if (affected instanceof Player) {
+                    Claim claim = plugin.dataStore.getClaimAt(affected.getLocation(), true, null);
+                    if (claim != null && !claim.isFlagAllowed(ClaimFlag.MONSTER_DAMAGE)) {
+                        it.remove();
+                    }
+                }
+            }
+        } else if (source instanceof Player attacker) {
+            Claim attackerClaim = plugin.dataStore.getClaimAt(attacker.getLocation(), true, null);
+            Iterator<LivingEntity> it = event.getAffectedEntities().iterator();
+            while (it.hasNext()) {
+                LivingEntity affected = it.next();
+                if (affected instanceof Player defender && !defender.equals(attacker)) {
+                    Claim defenderClaim = plugin.dataStore.getClaimAt(defender.getLocation(), true, null);
+                    if ((defenderClaim != null && !defenderClaim.isFlagAllowed(ClaimFlag.PVP))
+                            || (attackerClaim != null && !attackerClaim.isFlagAllowed(ClaimFlag.PVP))) {
+                        it.remove();
+                    }
+                }
             }
         }
     }
@@ -311,19 +463,37 @@ public class ClaimFlagListener implements Listener {
      * ---------------------------------------------------- */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onExplosion(EntityExplodeEvent event) {
-        Claim claim = plugin.dataStore.getClaimAt(event.getLocation(), true, null);
-        if (claim != null && !claim.isFlagAllowed(ClaimFlag.EXPLOSIONS)) {
+        Claim originClaim = plugin.dataStore.getClaimAt(event.getLocation(), true, null);
+        if (originClaim != null && !originClaim.isFlagAllowed(ClaimFlag.EXPLOSIONS)) {
             event.blockList().clear();
             event.setCancelled(true);
+            return;
+        }
+        Iterator<Block> it = event.blockList().iterator();
+        while (it.hasNext()) {
+            Block block = it.next();
+            Claim blockClaim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
+            if (blockClaim != null && !blockClaim.isFlagAllowed(ClaimFlag.EXPLOSIONS)) {
+                it.remove();
+            }
         }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBlockExplosion(BlockExplodeEvent event) {
-        Claim claim = plugin.dataStore.getClaimAt(event.getBlock().getLocation(), true, null);
-        if (claim != null && !claim.isFlagAllowed(ClaimFlag.EXPLOSIONS)) {
+        Claim originClaim = plugin.dataStore.getClaimAt(event.getBlock().getLocation(), true, null);
+        if (originClaim != null && !originClaim.isFlagAllowed(ClaimFlag.EXPLOSIONS)) {
             event.blockList().clear();
             event.setCancelled(true);
+            return;
+        }
+        Iterator<Block> it = event.blockList().iterator();
+        while (it.hasNext()) {
+            Block block = it.next();
+            Claim blockClaim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
+            if (blockClaim != null && !blockClaim.isFlagAllowed(ClaimFlag.EXPLOSIONS)) {
+                it.remove();
+            }
         }
     }
 
@@ -336,7 +506,7 @@ public class ClaimFlagListener implements Listener {
         if (claim == null) return;
 
         Entity entity = event.getEntity();
-        if (entity instanceof Monster) {
+        if (isHostileEntity(entity)) {
             if (!claim.isFlagAllowed(ClaimFlag.MOB_SPAWNING)) {
                 event.setCancelled(true);
             }
@@ -439,9 +609,20 @@ public class ClaimFlagListener implements Listener {
      * ---------------------------------------------------- */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPistonExtend(BlockPistonExtendEvent event) {
+        Block headDest = event.getBlock().getRelative(event.getDirection());
+        Claim headClaim = plugin.dataStore.getClaimAt(headDest.getLocation(), true, null);
+        if (headClaim != null && !headClaim.isFlagAllowed(ClaimFlag.PISTONS)) {
+            event.setCancelled(true);
+            return;
+        }
         for (Block block : event.getBlocks()) {
-            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
-            if (claim != null && !claim.isFlagAllowed(ClaimFlag.PISTONS)) {
+            Claim srcClaim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
+            if (srcClaim != null && !srcClaim.isFlagAllowed(ClaimFlag.PISTONS)) {
+                event.setCancelled(true);
+                return;
+            }
+            Claim destClaim = plugin.dataStore.getClaimAt(block.getRelative(event.getDirection()).getLocation(), true, null);
+            if (destClaim != null && !destClaim.isFlagAllowed(ClaimFlag.PISTONS)) {
                 event.setCancelled(true);
                 return;
             }
@@ -451,8 +632,13 @@ public class ClaimFlagListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPistonRetract(BlockPistonRetractEvent event) {
         for (Block block : event.getBlocks()) {
-            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
-            if (claim != null && !claim.isFlagAllowed(ClaimFlag.PISTONS)) {
+            Claim srcClaim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
+            if (srcClaim != null && !srcClaim.isFlagAllowed(ClaimFlag.PISTONS)) {
+                event.setCancelled(true);
+                return;
+            }
+            Claim destClaim = plugin.dataStore.getClaimAt(block.getRelative(event.getDirection()).getLocation(), true, null);
+            if (destClaim != null && !destClaim.isFlagAllowed(ClaimFlag.PISTONS)) {
                 event.setCancelled(true);
                 return;
             }
@@ -541,16 +727,15 @@ public class ClaimFlagListener implements Listener {
             }
         }
 
-        if (hasActiveRankFly(player)) return;
+        if (hasActiveRankFly(player) || player.hasPermission("griefprevention.infiniteflight")) return;
 
-        boolean wasFlying = flyingPlayers.contains(uuid) || player.getAllowFlight() || player.isFlying();
-        if (wasFlying) {
-            if (targetClaim == null || !targetClaim.isFlagAllowed(ClaimFlag.FLY)) {
-                if (player.getGameMode() == GameMode.SURVIVAL || player.getGameMode() == GameMode.ADVENTURE) {
-                    player.setAllowFlight(false);
-                    player.setFlying(false);
-                }
+        if (flyingPlayers.contains(uuid)) {
+            if (!isFlightAllowedInClaim(player, targetClaim)) {
+                revokeFlight(player, uuid);
             }
+            Bukkit.getScheduler().runTaskLater(plugin, () -> enforceFlightAtLocation(player), 1L);
+            Bukkit.getScheduler().runTaskLater(plugin, () -> enforceFlightAtLocation(player), 3L);
+        } else if (isFlightAllowedInClaim(player, targetClaim)) {
             Bukkit.getScheduler().runTaskLater(plugin, () -> enforceFlightAtLocation(player), 1L);
             Bukkit.getScheduler().runTaskLater(plugin, () -> enforceFlightAtLocation(player), 3L);
         }

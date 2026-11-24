@@ -12,6 +12,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -79,6 +80,40 @@ public class ProtectionSelectorGui {
             39, 40, 41, 42, 43
     };
 
+    public static class Holder implements InventoryHolder {
+        private final Category category;
+        private final int page;
+        private final Map<Integer, Long> slotClaimMap;
+        private Inventory inventory;
+
+        public Holder(Category category, int page, Map<Integer, Long> slotClaimMap) {
+            this.category = category;
+            this.page = page;
+            this.slotClaimMap = slotClaimMap;
+        }
+
+        public Category getCategory() {
+            return category;
+        }
+
+        public int getPage() {
+            return page;
+        }
+
+        public Map<Integer, Long> getSlotClaimMap() {
+            return slotClaimMap;
+        }
+
+        void setInventory(Inventory inventory) {
+            this.inventory = inventory;
+        }
+
+        @Override
+        public Inventory getInventory() {
+            return inventory;
+        }
+    }
+
     public static void open(GriefPrevention plugin, Player player) {
         open(plugin, player, Category.OWNED, 0);
     }
@@ -89,7 +124,10 @@ public class ProtectionSelectorGui {
         String title = SELECTOR_TITLE_PREFIX + category.name();
         if (title.length() > 32) title = title.substring(0, 32);
 
-        Inventory inv = Bukkit.createInventory(null, 54, title);
+        Map<Integer, Long> currentSlotMap = new HashMap<>();
+        Holder holder = new Holder(category, page, currentSlotMap);
+        Inventory inv = Bukkit.createInventory(holder, 54, title);
+        holder.setInventory(inv);
 
         // Fill background borders
         ItemStack border = createItem(Material.BLACK_STAINED_GLASS_PANE, " ");
@@ -123,7 +161,6 @@ public class ProtectionSelectorGui {
 
         // Get Claims for category
         List<Claim> claims = getClaimsForCategory(plugin, player, category);
-        Map<Integer, Long> currentSlotMap = new HashMap<>();
 
         int perPage = CLAIM_SLOTS.length; // 20
         int totalClaims = claims.size();

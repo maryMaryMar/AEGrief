@@ -142,16 +142,7 @@ public enum ProtectionBlockType {
             }
         }
 
-        // Fallback: check material and display name / lore keywords
-        Material mat = item.getType();
-        for (ProtectionBlockType type : values()) {
-            if (type.getMaterial() == mat) {
-                if (meta.hasDisplayName() && meta.getDisplayName().contains("Protección")) {
-                    return type;
-                }
-            }
-        }
-
+        // Never fall back to display names (prevents anvil rename exploit); require PDC tag.
         return null;
     }
 

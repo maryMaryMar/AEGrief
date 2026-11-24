@@ -40,6 +40,25 @@ public class ProtectionCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length > 0 && (args[0].equalsIgnoreCase("crystals") || args[0].equalsIgnoreCase("crystal") || args[0].equalsIgnoreCase("gemas"))) {
+            if (!(sender instanceof Player)) {
+                sender.sendMessage(ChatColor.RED + "Este comando solo puede ser ejecutado por un jugador.");
+                return true;
+            }
+            Player player = (Player) sender;
+            Claim claim = this.plugin.dataStore.getClaimAt(player.getLocation(), true, null);
+            if (claim == null) {
+                player.sendMessage(ChatColor.RED + "Debes estar parado dentro de un claim para ver sus cristales.");
+                return true;
+            }
+            if (claim.getOwnerID() == null || (!claim.getOwnerID().equals(player.getUniqueId()) && !player.hasPermission("griefprevention.admin"))) {
+                player.sendMessage(ChatColor.RED + "Solo el dueño del claim o un administrador puede gestionar los cristales.");
+                return true;
+            }
+            new me.ryanhamshire.GriefPrevention.crystal.CrystalGUI(claim, player).open();
+            return true;
+        }
+
         if (args.length == 0 || args[0].equalsIgnoreCase("menu") || args[0].equalsIgnoreCase("gui")) {
             if (!(sender instanceof Player)) {
                 sendHelp(sender);
@@ -241,7 +260,13 @@ public class ProtectionCommand implements CommandExecutor, TabCompleter {
             }
             int radius = plugin.protectionConfig.getRadius(type);
             ItemStack item = type.createItemStack(1, radius);
-            player.getInventory().addItem(item);
+            java.util.HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(item);
+            if (!leftover.isEmpty()) {
+                for (ItemStack rem : leftover.values()) {
+                    player.getWorld().dropItemNaturally(player.getLocation(), rem);
+                }
+                player.sendMessage(ChatColor.YELLOW + "¡Inventario lleno! El bloque ha caído a tus pies.");
+            }
             player.sendMessage(ChatColor.GREEN + "Has recibido un " + plugin.protectionConfig.getDisplayName(type) + ChatColor.GREEN + ".");
             return true;
         }
@@ -274,7 +299,13 @@ public class ProtectionCommand implements CommandExecutor, TabCompleter {
             }
             int radius = plugin.protectionConfig.getRadius(type);
             ItemStack item = type.createItemStack(amount, radius);
-            target.getInventory().addItem(item);
+            java.util.HashMap<Integer, ItemStack> leftover = target.getInventory().addItem(item);
+            if (!leftover.isEmpty()) {
+                for (ItemStack rem : leftover.values()) {
+                    target.getWorld().dropItemNaturally(target.getLocation(), rem);
+                }
+                target.sendMessage(ChatColor.YELLOW + "¡Tu inventario estaba lleno! Parte de los bloques cayeron a tus pies.");
+            }
             sender.sendMessage(ChatColor.GREEN + "Entregado " + amount + "x " + plugin.protectionConfig.getDisplayName(type) + ChatColor.GREEN + " a " + target.getName() + ".");
             target.sendMessage(ChatColor.GREEN + "Has recibido " + amount + "x " + plugin.protectionConfig.getDisplayName(type) + ChatColor.GREEN + ".");
             return true;
@@ -344,6 +375,7 @@ public class ProtectionCommand implements CommandExecutor, TabCompleter {
                     String newVal = current ? "deny" : "allow";
                     claim.setFlag(flag, newVal);
                     plugin.dataStore.saveClaim(claim);
+                    me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener.handleFlagUpdated(plugin, claim, flag, player);
                     player.sendMessage(ChatColor.GREEN + "Flag " + ChatColor.YELLOW + flag.name().toLowerCase() + ChatColor.GREEN + " establecida a: " + (newVal.equals("allow") ? ChatColor.AQUA + "ALLOW" : ChatColor.RED + "DENY"));
                 } else {
                     player.sendMessage(ChatColor.GRAY + "Valor actual de " + flag.name().toLowerCase() + ": " + ChatColor.YELLOW + claim.getFlag(flag));
@@ -356,9 +388,17 @@ public class ProtectionCommand implements CommandExecutor, TabCompleter {
                 if (i > 2) valBuilder.append(" ");
                 valBuilder.append(args[i]);
             }
-            String val = valBuilder.toString();
+            String val = valBuilder.toString().trim();
+            if (flag.getType() == ClaimFlag.FlagType.BOOLEAN) {
+                if (!val.equalsIgnoreCase("allow") && !val.equalsIgnoreCase("deny")) {
+                    player.sendMessage(ChatColor.RED + "✖ Esta flag solo acepta valores: " + ChatColor.YELLOW + "allow" + ChatColor.RED + " o " + ChatColor.YELLOW + "deny" + ChatColor.RED + ".");
+                    return true;
+                }
+                val = val.toLowerCase();
+            }
             claim.setFlag(flag, val);
             plugin.dataStore.saveClaim(claim);
+            me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener.handleFlagUpdated(plugin, claim, flag, player);
             player.sendMessage(ChatColor.GREEN + "Flag " + ChatColor.YELLOW + flag.name().toLowerCase() + ChatColor.GREEN + " configurada a: " + ChatColor.WHITE + val);
             return true;
         }

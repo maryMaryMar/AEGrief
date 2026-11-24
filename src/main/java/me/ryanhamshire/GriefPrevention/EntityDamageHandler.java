@@ -1252,8 +1252,8 @@ public class EntityDamageHandler implements Listener
                 }
             }
 
-            //Otherwise, ignore potions not thrown by players
-            if (thrower == null) return;
+            // Otherwise, continue checking remaining effects cleanly even if potion wasn't thrown by a player
+            if (thrower == null) continue;
 
             //otherwise, no restrictions for positive effects
             if (POSITIVE_EFFECTS.contains(effectType)) continue;

@@ -5,6 +5,7 @@ import me.ryanhamshire.GriefPrevention.ClaimPermission;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import me.ryanhamshire.GriefPrevention.clans.UltimateClansHook;
 import me.ryanhamshire.GriefPrevention.flags.ClaimFlag;
+import me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener;
 import me.ryanhamshire.GriefPrevention.protection.ProtectionBlockType;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -17,8 +18,10 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Map;
@@ -38,20 +41,16 @@ public class ProtectionGuiListener implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
-        String title = event.getView().getTitle();
-        if (title == null) return;
+        InventoryHolder holder = event.getInventory().getHolder();
 
         // 1. Selector Menu Handling
-        if (title.startsWith(ProtectionSelectorGui.SELECTOR_TITLE_PREFIX)) {
+        if (holder instanceof ProtectionSelectorGui.Holder selectorHolder) {
             event.setCancelled(true);
             int slot = event.getRawSlot();
             if (slot < 0 || slot >= 54) return;
 
-            UUID uuid = player.getUniqueId();
-            ProtectionSelectorGui.CategoryState state = ProtectionSelectorGui.playerStates.get(uuid);
-            if (state == null) {
-                state = new ProtectionSelectorGui.CategoryState(ProtectionSelectorGui.Category.OWNED, 0);
-            }
+            ProtectionSelectorGui.Category category = selectorHolder.getCategory();
+            int page = selectorHolder.getPage();
 
             // Category Tab Clicks (Slots 10, 19, 28)
             if (slot == 10) {
@@ -71,14 +70,14 @@ public class ProtectionGuiListener implements Listener {
             }
 
             // Pagination Clicks (Slots 48, 50)
-            if (slot == 48 && state.page > 0) {
+            if (slot == 48 && page > 0) {
                 player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.7f, 1.0f);
-                ProtectionSelectorGui.open(plugin, player, state.category, state.page - 1);
+                ProtectionSelectorGui.open(plugin, player, category, page - 1);
                 return;
             }
             if (slot == 50) {
                 player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.7f, 1.0f);
-                ProtectionSelectorGui.open(plugin, player, state.category, state.page + 1);
+                ProtectionSelectorGui.open(plugin, player, category, page + 1);
                 return;
             }
 
@@ -89,10 +88,10 @@ public class ProtectionGuiListener implements Listener {
             }
 
             // Claim Item Click from Grid
-            Map<Integer, Long> currentSlots = ProtectionSelectorGui.slotClaimMap.get(uuid);
+            Map<Integer, Long> currentSlots = selectorHolder.getSlotClaimMap();
             if (currentSlots != null && currentSlots.containsKey(slot)) {
                 Long claimId = currentSlots.get(slot);
-                Claim selected = plugin.dataStore.getClaim(claimId);
+                Claim selected = claimId != null ? plugin.dataStore.getClaim(claimId) : null;
                 if (selected != null) {
                     player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.8f, 1.3f);
                     ProtectionGui.open(plugin, player, selected);
@@ -102,16 +101,13 @@ public class ProtectionGuiListener implements Listener {
         }
 
         // 2. Individual Protection Management GUI Handling
-        if (title.startsWith(ProtectionGui.GUI_TITLE_PREFIX)) {
+        if (holder instanceof ProtectionGui.Holder guiHolder) {
             event.setCancelled(true);
             int slot = event.getRawSlot();
             if (slot < 0 || slot >= 54) return;
 
-            Long claimId = openGuiClaims.get(player.getUniqueId());
-            if (claimId == null) return;
-
-            Claim claim = plugin.dataStore.getClaim(claimId);
-            if (claim == null) {
+            Claim claim = guiHolder.getClaim();
+            if (claim == null || !claim.inDataStore) {
                 player.closeInventory();
                 return;
             }
@@ -127,8 +123,8 @@ public class ProtectionGuiListener implements Listener {
                 return;
             }
 
-            // Check if clicked slot is a Flag
-            ClaimFlag flag = ProtectionGui.getFlagBySlot(slot);
+            // Check if clicked slot is a Flag (mapped per-GUI instance to avoid disabled-flag desync)
+            ClaimFlag flag = guiHolder.getFlagAtSlot(slot);
             if (flag != null) {
                 if (plugin.flagConfig != null && !plugin.flagConfig.isEnabled(flag)) {
                     player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
@@ -146,45 +142,7 @@ public class ProtectionGuiListener implements Listener {
                 String next = "allow".equalsIgnoreCase(current) ? "deny" : "allow";
                 claim.setFlag(flag, next);
                 plugin.dataStore.saveClaim(claim);
-
-                if (flag == ClaimFlag.FLY) {
-                    for (Player p : Bukkit.getOnlinePlayers()) {
-                        Claim pClaim = plugin.dataStore.getClaimAt(p.getLocation(), true, null);
-                        if (pClaim != null && pClaim.getID().equals(claim.getID())) {
-                            if ("allow".equalsIgnoreCase(next)) {
-                                if (p.getGameMode() == org.bukkit.GameMode.SURVIVAL || p.getGameMode() == org.bukkit.GameMode.ADVENTURE) {
-                                    p.setAllowFlight(true);
-                                    me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener.flyingPlayers.add(p.getUniqueId());
-                                    me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener.sendActionBar(p, ChatColor.GREEN + "✈ Modo Vuelo activado en esta protección.");
-                                }
-                            } else {
-                                if (me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener.flyingPlayers.contains(p.getUniqueId())) {
-                                    me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener.revokeFlight(p, p.getUniqueId());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (flag == ClaimFlag.ENTRY) {
-                    if ("deny".equalsIgnoreCase(next)) {
-                        player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&6🛡 &eCampo de fuerza &cACTIVADO&e: Los intrusos no autorizados serán expulsados y bloqueados."));
-                        for (Player p : Bukkit.getOnlinePlayers()) {
-                            if (p.equals(player) || p.hasPermission("griefprevention.adminclaims") || p.hasPermission("griefprevention.claimflag.bypass")) {
-                                continue;
-                            }
-                            Claim pClaim = plugin.dataStore.getClaimAt(p.getLocation(), true, null);
-                            if (pClaim != null && (pClaim.getID().equals(claim.getID()) || (pClaim.parent != null && pClaim.parent.getID().equals(claim.getID())))) {
-                                if (claim.allowAccess(p) != null) {
-                                    plugin.ejectPlayer(p);
-                                    p.sendMessage(ChatColor.RED + "✖ El propietario ha activado el campo de fuerza y has sido expulsado de la protección.");
-                                }
-                            }
-                        }
-                    } else {
-                        player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&6🛡 &eCampo de fuerza &aDESACTIVADO&e: La entrada a la protección vuelve a ser pública."));
-                    }
-                }
+                ClaimFlagListener.handleFlagUpdated(plugin, claim, flag, player);
                 event.getInventory().setItem(slot, ProtectionGui.createFlagItem(plugin, claim, flag));
                 return;
             }
@@ -197,7 +155,7 @@ public class ProtectionGuiListener implements Listener {
                     return;
                 }
                 Claim currentClaim = plugin.dataStore.getClaimAt(player.getLocation(), true, null);
-                if (currentClaim == null || !currentClaim.getID().equals(claim.getID())) {
+                if (!ClaimFlagListener.isSameRootClaim(currentClaim, claim)) {
                     player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
                     player.sendMessage(ChatColor.RED + "✖ Debes estar parado físicamente dentro de esta protección para fijar el spawn aquí.");
                     return;
@@ -267,18 +225,12 @@ public class ProtectionGuiListener implements Listener {
             }
         }
 
-        // Manejo del Menú de Confirmación de Retiro (Lana Roja y Lana Verde)
-        if (title.startsWith(ProtectionConfirmGui.CONFIRM_TITLE_PREFIX)) {
+        // 3. Manejo del Menú de Confirmación de Retiro (Lana Roja y Lana Verde)
+        if (holder instanceof ProtectionConfirmGui.Holder confirmHolder) {
             event.setCancelled(true);
 
-            Long claimId = openGuiClaims.get(player.getUniqueId());
-            if (claimId == null) {
-                player.closeInventory();
-                return;
-            }
-
-            Claim claim = plugin.dataStore.getClaim(claimId);
-            if (claim == null) {
+            Claim claim = confirmHolder.getClaim();
+            if (claim == null || !claim.inDataStore) {
                 player.closeInventory();
                 player.sendMessage(ChatColor.RED + "✖ Este terreno ya no existe o fue retirado.");
                 return;
@@ -305,21 +257,18 @@ public class ProtectionGuiListener implements Listener {
                     return;
                 }
 
-                // Identificar el tipo de bloque de protección con fallback a partir del área
+                // Solo devolver bloque si la claim tenía un bloque central físico registrado
                 Location center = claim.centerBlockLocation;
-                ProtectionBlockType type = null;
+                ProtectionBlockType physicalType = null;
                 if (center != null && center.getWorld() != null) {
-                    type = ProtectionBlockType.fromMaterial(center.getBlock().getType());
-                }
-                if (type == null) {
-                    type = ProtectionBlockType.fromArea(claim.getArea());
-                    if (type == null) {
-                        type = ProtectionBlockType.IRON;
-                    }
+                    physicalType = ProtectionBlockType.fromMaterial(center.getBlock().getType());
                 }
 
-                int radius = plugin.protectionConfig.getRadius(type);
-                ItemStack protectionItem = type.createItemStack(1, radius);
+                ItemStack protectionItem = null;
+                if (physicalType != null) {
+                    int radius = plugin.protectionConfig.getRadius(physicalType);
+                    protectionItem = physicalType.createItemStack(1, radius);
+                }
 
                 player.closeInventory();
 
@@ -328,23 +277,27 @@ public class ProtectionGuiListener implements Listener {
                     center.getBlock().setType(Material.AIR);
                 }
 
-                // Inmediatamente la claim deja de existir
+                // Inmediatamente la claim deja de existir y se actualiza el estado de vuelo
                 plugin.dataStore.deleteClaim(claim);
+                ClaimFlagListener.enforceFlightAtLocation(player);
 
-                // Entregar el bloque de protección al inventario
-                java.util.HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(protectionItem);
-                if (!leftover.isEmpty()) {
-                    for (ItemStack remaining : leftover.values()) {
-                        player.getWorld().dropItemNaturally(player.getLocation(), remaining);
+                if (protectionItem != null) {
+                    java.util.HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(protectionItem);
+                    if (!leftover.isEmpty()) {
+                        for (ItemStack remaining : leftover.values()) {
+                            player.getWorld().dropItemNaturally(player.getLocation(), remaining);
+                        }
+                        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
+                        player.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "¡INVENTARIO LLENO! " + ChatColor.YELLOW + "Tu bloque de protección ha caído a tus pies.");
+                    } else {
+                        player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.8f, 1.2f);
                     }
-                    player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
-                    player.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "¡INVENTARIO LLENO! " + ChatColor.YELLOW + "Tu bloque de protección ha caído a tus pies.");
+                    player.sendMessage(ChatColor.GREEN + "✔ Terreno desprotegido con éxito. El bloque de " + plugin.protectionConfig.getDisplayName(physicalType) + ChatColor.GREEN + " ha sido devuelto a tu inventario.");
                 } else {
-                    player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.8f, 1.2f);
+                    player.sendMessage(ChatColor.GREEN + "✔ Terreno desprotegido con éxito.");
                 }
 
                 player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.8f, 1.2f);
-                player.sendMessage(ChatColor.GREEN + "✔ Terreno desprotegido con éxito. El bloque de " + plugin.protectionConfig.getDisplayName(type) + ChatColor.GREEN + " ha sido devuelto a tu inventario.");
                 return;
             }
         }
@@ -352,11 +305,19 @@ public class ProtectionGuiListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryDrag(InventoryDragEvent event) {
-        String title = event.getView().getTitle();
-        if (title != null && (title.startsWith(ProtectionGui.GUI_TITLE_PREFIX)
-                || title.startsWith(ProtectionSelectorGui.SELECTOR_TITLE_PREFIX)
-                || title.startsWith(ProtectionConfirmGui.CONFIRM_TITLE_PREFIX))) {
+        InventoryHolder holder = event.getInventory().getHolder();
+        if (holder instanceof ProtectionGui.Holder
+                || holder instanceof ProtectionSelectorGui.Holder
+                || holder instanceof ProtectionConfirmGui.Holder) {
             event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        InventoryHolder holder = event.getInventory().getHolder();
+        if (holder instanceof ProtectionGui.Holder || holder instanceof ProtectionConfirmGui.Holder) {
+            openGuiClaims.remove(event.getPlayer().getUniqueId());
         }
     }
 
@@ -371,12 +332,18 @@ public class ProtectionGuiListener implements Listener {
     public static Location getSafeCenterTarget(Claim claim) {
         if (claim == null) return null;
 
-        // If physical center block is present, teleport directly on top of it
-        if (claim.centerBlockLocation != null) {
+        // 1. Respect custom spawn set via /ps setspawn or GUI compass
+        Location customSpawn = claim.getSpawnLocation();
+        if (customSpawn != null && customSpawn.getWorld() != null) {
+            return customSpawn.clone();
+        }
+
+        // 2. If physical center block is present, teleport directly on top of it
+        if (claim.centerBlockLocation != null && claim.centerBlockLocation.getWorld() != null) {
             return claim.centerBlockLocation.clone().add(0.5, 1.0, 0.5);
         }
 
-        // Fallback for legacy shovel claims: geometric center at highest safe ground
+        // 3. Fallback for legacy shovel claims: geometric center at highest safe ground
         Location lesser = claim.getLesserBoundaryCorner();
         Location greater = claim.getGreaterBoundaryCorner();
         if (lesser == null || greater == null || lesser.getWorld() == null) return null;

@@ -61,7 +61,11 @@ import me.ryanhamshire.GriefPrevention.clans.ClanTrustLevel;
 import me.ryanhamshire.GriefPrevention.commands.ClanChatCommand;
 import me.ryanhamshire.GriefPrevention.commands.ClanTrustCommand;
 import me.ryanhamshire.GriefPrevention.commands.ClaimFlagCommand;
+import me.ryanhamshire.GriefPrevention.commands.CrystalCommand;
 import me.ryanhamshire.GriefPrevention.commands.ProtectionCommand;
+import me.ryanhamshire.GriefPrevention.crystal.CrystalGUI;
+import me.ryanhamshire.GriefPrevention.crystal.CrystalManager;
+import me.ryanhamshire.GriefPrevention.protection.AxSellWandsHook;
 import me.ryanhamshire.GriefPrevention.flags.ClaimFlag;
 import me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener;
 import me.ryanhamshire.GriefPrevention.flags.FlagConfig;
@@ -102,6 +106,8 @@ public class GriefPrevention extends JavaPlugin
     // Config for protection blocks and configurable radii
     public ProtectionConfig protectionConfig;
     public FlagConfig flagConfig;
+    public CrystalManager crystalManager;
+    public AxSellWandsHook axSellWandsHook;
 
     // Event handlers with common functionality
     EntityEventHandler entityEventHandler;
@@ -460,6 +466,20 @@ public class GriefPrevention extends JavaPlugin
         {
             getCommand("claimflag").setExecutor(flagCmd);
             getCommand("claimflag").setTabCompleter(flagCmd);
+        }
+
+        // AEGrief Claim Crystals & AxSellWands Hook modules
+        this.crystalManager = new CrystalManager(this);
+        pluginManager.registerEvents(this.crystalManager, this);
+        pluginManager.registerEvents(new CrystalGUI.CrystalListener(), this);
+        this.axSellWandsHook = new AxSellWandsHook();
+        pluginManager.registerEvents(this.axSellWandsHook, this);
+
+        CrystalCommand crystalCmd = new CrystalCommand(this);
+        if (getCommand("crystals") != null)
+        {
+            getCommand("crystals").setExecutor(crystalCmd);
+            getCommand("crystals").setTabCompleter(crystalCmd);
         }
 
         AddLogEntry("Boot finished.");
@@ -3390,6 +3410,11 @@ public class GriefPrevention extends JavaPlugin
         }
 
         this.dataStore.close();
+
+        if (this.crystalManager != null)
+        {
+            this.crystalManager.shutdown();
+        }
 
         //dump any remaining unwritten log entries
         this.customLogger.WriteEntries();

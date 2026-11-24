@@ -107,19 +107,16 @@ public class ProtectionBlockListener implements Listener {
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerInteract(PlayerInteractEvent event) {
+        if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
         Block block = event.getClickedBlock();
         if (block == null) return;
 
-        Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), false, null);
+        Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
         if (claim == null) return;
 
-        boolean isCenter = false;
-        if (claim.centerBlockLocation != null) {
-            isCenter = isSameBlock(claim.centerBlockLocation, block.getLocation());
-        } else if (ProtectionBlockType.fromMaterial(block.getType()) != null) {
-            isCenter = true;
-        }
+        boolean isCenter = claim.centerBlockLocation != null
+                && isSameBlock(claim.centerBlockLocation, block.getLocation());
 
         if (isCenter) {
             Player player = event.getPlayer();
@@ -135,21 +132,14 @@ public class ProtectionBlockListener implements Listener {
     @EventHandler(priority = EventPriority.LOWEST)
     public void onBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
-        Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), false, null);
+        Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
         if (claim == null) {
             return;
         }
 
-        // Verify if this exact block is the center block OR a fallback legacy protection block
-        boolean isCenter = false;
-        if (claim.centerBlockLocation != null) {
-            isCenter = isSameBlock(claim.centerBlockLocation, block.getLocation());
-        } else {
-            ProtectionBlockType legacyType = ProtectionBlockType.fromMaterial(block.getType());
-            if (legacyType != null) {
-                isCenter = true;
-            }
-        }
+        // Only protect the actual registered physical protection center block
+        boolean isCenter = claim.centerBlockLocation != null
+                && isSameBlock(claim.centerBlockLocation, block.getLocation());
 
         if (!isCenter) {
             return;
@@ -174,7 +164,7 @@ public class ProtectionBlockListener implements Listener {
     public void onBlockDropItem(BlockDropItemEvent event) {
         Location loc = event.getBlock().getLocation();
 
-        Claim claim = plugin.dataStore.getClaimAt(loc, false, null);
+        Claim claim = plugin.dataStore.getClaimAt(loc, true, null);
         if (claim != null && claim.centerBlockLocation != null && isSameBlock(claim.centerBlockLocation, loc)) {
             event.getItems().clear();
             event.setCancelled(true);
@@ -186,7 +176,7 @@ public class ProtectionBlockListener implements Listener {
         Iterator<Block> iterator = event.blockList().iterator();
         while (iterator.hasNext()) {
             Block block = iterator.next();
-            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), false, null);
+            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
             if (claim != null && claim.centerBlockLocation != null && isSameBlock(claim.centerBlockLocation, block.getLocation())) {
                 iterator.remove();
             }
@@ -198,7 +188,7 @@ public class ProtectionBlockListener implements Listener {
         Iterator<Block> iterator = event.blockList().iterator();
         while (iterator.hasNext()) {
             Block block = iterator.next();
-            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), false, null);
+            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
             if (claim != null && claim.centerBlockLocation != null && isSameBlock(claim.centerBlockLocation, block.getLocation())) {
                 iterator.remove();
             }
@@ -208,7 +198,7 @@ public class ProtectionBlockListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPistonExtend(BlockPistonExtendEvent event) {
         for (Block block : event.getBlocks()) {
-            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), false, null);
+            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
             if (claim != null && claim.centerBlockLocation != null && isSameBlock(claim.centerBlockLocation, block.getLocation())) {
                 event.setCancelled(true);
                 return;
@@ -219,7 +209,7 @@ public class ProtectionBlockListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPistonRetract(BlockPistonRetractEvent event) {
         for (Block block : event.getBlocks()) {
-            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), false, null);
+            Claim claim = plugin.dataStore.getClaimAt(block.getLocation(), true, null);
             if (claim != null && claim.centerBlockLocation != null && isSameBlock(claim.centerBlockLocation, block.getLocation())) {
                 event.setCancelled(true);
                 return;

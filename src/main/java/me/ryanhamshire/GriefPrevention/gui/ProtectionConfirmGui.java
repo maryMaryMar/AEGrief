@@ -8,6 +8,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -20,17 +21,42 @@ public class ProtectionConfirmGui {
 
     public static final String CONFIRM_TITLE_PREFIX = "✦ ¿Retirar Terreno #";
 
+    public static class Holder implements InventoryHolder {
+        private final Claim claim;
+        private Inventory inventory;
+
+        public Holder(Claim claim) {
+            this.claim = claim;
+        }
+
+        public Claim getClaim() {
+            return claim;
+        }
+
+        void setInventory(Inventory inventory) {
+            this.inventory = inventory;
+        }
+
+        @Override
+        public Inventory getInventory() {
+            return inventory;
+        }
+    }
+
     public static void open(GriefPrevention plugin, Player player, Claim claim) {
         if (claim == null) return;
+        Claim rootClaim = claim.parent != null ? claim.parent : claim;
 
-        ProtectionGuiListener.openGuiClaims.put(player.getUniqueId(), claim.getID());
+        ProtectionGuiListener.openGuiClaims.put(player.getUniqueId(), rootClaim.getID());
 
-        String title = CONFIRM_TITLE_PREFIX + claim.getID() + "?";
+        String title = CONFIRM_TITLE_PREFIX + rootClaim.getID() + "?";
         if (title.length() > 32) {
             title = title.substring(0, 32);
         }
 
-        Inventory inv = Bukkit.createInventory(null, 27, title);
+        Holder holder = new Holder(rootClaim);
+        Inventory inv = Bukkit.createInventory(holder, 27, title);
+        holder.setInventory(inv);
 
         // Fondo estético con cristal gris
         ItemStack filler = createItem(Material.GRAY_STAINED_GLASS_PANE, " ");
@@ -48,34 +74,43 @@ public class ProtectionConfirmGui {
                 "&e▶ Clic para volver"
         ));
 
-        // Slot 13: Información del bloque y terreno
-        ProtectionBlockType type = null;
-        if (claim.centerBlockLocation != null && claim.centerBlockLocation.getWorld() != null) {
-            type = ProtectionBlockType.fromMaterial(claim.centerBlockLocation.getBlock().getType());
+        // Slot 13: Información del bloque y terreno (solo hay devolución si tiene bloque central real)
+        ProtectionBlockType physicalType = null;
+        if (rootClaim.centerBlockLocation != null && rootClaim.centerBlockLocation.getWorld() != null) {
+            physicalType = ProtectionBlockType.fromMaterial(rootClaim.centerBlockLocation.getBlock().getType());
         }
-        if (type == null) {
-            type = ProtectionBlockType.fromArea(claim.getArea());
-            if (type == null) {
-                type = ProtectionBlockType.IRON;
-            }
-        }
-        int radius = plugin.protectionConfig.getRadius(type);
-        String claimName = claim.getCustomName() != null ? claim.getCustomName() : "#" + claim.getID();
-        String formattedArea = NumberFormat.getNumberInstance(Locale.US).format(claim.getArea());
 
-        inv.setItem(13, createItem(
-                type.getMaterial(),
-                "&e&l✦ " + plugin.protectionConfig.getDisplayName(type),
-                "&7Terreno: &f" + claimName,
-                "&7Dimensiones: &e" + (radius * 2) + "x" + (radius * 2) + " bloques",
-                "&7Radio: &e" + radius + "b &7(hacia cada lado)",
-                "&7Área protegida: &b" + formattedArea + " ClaimBlocks",
-                "",
-                "&6&l✦ Retiro Inmediato:",
-                "&7Al confirmar, la protección &cdejará de existir",
-                "&7y recibirás 1 bloque de " + plugin.protectionConfig.getDisplayName(type),
-                "&7directamente en tu inventario."
-        ));
+        String claimName = rootClaim.getCustomName() != null ? rootClaim.getCustomName() : "#" + rootClaim.getID();
+        String formattedArea = NumberFormat.getNumberInstance(Locale.US).format(rootClaim.getArea());
+
+        if (physicalType != null) {
+            int radius = plugin.protectionConfig.getRadius(physicalType);
+            inv.setItem(13, createItem(
+                    physicalType.getMaterial(),
+                    "&e&l✦ " + plugin.protectionConfig.getDisplayName(physicalType),
+                    "&7Terreno: &f" + claimName,
+                    "&7Dimensiones: &e" + (radius * 2) + "x" + (radius * 2) + " bloques",
+                    "&7Radio: &e" + radius + "b &7(hacia cada lado)",
+                    "&7Área protegida: &b" + formattedArea + " ClaimBlocks",
+                    "",
+                    "&6&l✦ Retiro Inmediato:",
+                    "&7Al confirmar, la protección &cdejará de existir",
+                    "&7y recibirás 1 bloque de " + plugin.protectionConfig.getDisplayName(physicalType),
+                    "&7directamente en tu inventario."
+            ));
+        } else {
+            inv.setItem(13, createItem(
+                    Material.GOLDEN_SHOVEL,
+                    "&e&l✦ Protección Clásica " + claimName,
+                    "&7Terreno: &f" + claimName,
+                    "&7Área protegida: &b" + formattedArea + " ClaimBlocks",
+                    "",
+                    "&6&l✦ Retiro Inmediato:",
+                    "&7Esta protección no usa bloque central físico.",
+                    "&7Al confirmar, el terreno &cdejará de existir",
+                    "&7y se liberarán sus bloques de claim."
+            ));
+        }
 
         // Slot 15: Lana Verde - Confirmar Retiro (Derecha)
         inv.setItem(15, createItem(

@@ -8,18 +8,52 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
 import java.text.NumberFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class ProtectionGui {
 
     public static final String GUI_TITLE_PREFIX = "✦ Gestión: ";
+
+    public static class Holder implements InventoryHolder {
+        private final Claim claim;
+        private final Map<Integer, ClaimFlag> slotFlags = new HashMap<>();
+        private Inventory inventory;
+
+        public Holder(Claim claim) {
+            this.claim = claim;
+        }
+
+        public Claim getClaim() {
+            return claim;
+        }
+
+        public ClaimFlag getFlagAtSlot(int slot) {
+            return slotFlags.get(slot);
+        }
+
+        void setSlotFlag(int slot, ClaimFlag flag) {
+            slotFlags.put(slot, flag);
+        }
+
+        void setInventory(Inventory inventory) {
+            this.inventory = inventory;
+        }
+
+        @Override
+        public Inventory getInventory() {
+            return inventory;
+        }
+    }
 
     // Slots for the boolean flags across rows 1-4
     private static final int[] FLAG_SLOTS = {
@@ -56,16 +90,19 @@ public class ProtectionGui {
 
     public static void open(GriefPrevention plugin, Player player, Claim claim) {
         if (claim == null) return;
+        Claim rootClaim = claim.parent != null ? claim.parent : claim;
 
-        ProtectionGuiListener.openGuiClaims.put(player.getUniqueId(), claim.getID());
+        ProtectionGuiListener.openGuiClaims.put(player.getUniqueId(), rootClaim.getID());
 
-        String name = claim.getCustomName() != null ? claim.getCustomName() : "#" + claim.getID();
+        String name = rootClaim.getCustomName() != null ? rootClaim.getCustomName() : "#" + rootClaim.getID();
         String title = GUI_TITLE_PREFIX + name;
         if (title.length() > 32) {
             title = title.substring(0, 32);
         }
 
-        Inventory inv = Bukkit.createInventory(null, 54, title);
+        Holder holder = new Holder(rootClaim);
+        Inventory inv = Bukkit.createInventory(holder, 54, title);
+        holder.setInventory(inv);
 
         // Fill background borders
         ItemStack filler = createItem(Material.GRAY_STAINED_GLASS_PANE, " ");
@@ -81,7 +118,7 @@ public class ProtectionGui {
         inv.setItem(50, filler);
         inv.setItem(52, filler);
 
-        // Place Flags
+        // Place Flags and bind the exact displayed slot -> ClaimFlag in the Holder
         int slotIdx = 0;
         for (int i = 0; i < DISPLAY_FLAGS.length && slotIdx < FLAG_SLOTS.length; i++) {
             ClaimFlag flag = DISPLAY_FLAGS[i];
@@ -89,7 +126,8 @@ public class ProtectionGui {
                 continue;
             }
             int slot = FLAG_SLOTS[slotIdx++];
-            inv.setItem(slot, createFlagItem(plugin, claim, flag));
+            holder.setSlotFlag(slot, flag);
+            inv.setItem(slot, createFlagItem(plugin, rootClaim, flag));
         }
 
         // Fill remaining unused flag slots
@@ -112,7 +150,7 @@ public class ProtectionGui {
         inv.setItem(47, createItem(
                 Material.OAK_SIGN,
                 "&e✦ Renombrar Protección",
-                "&7Nombre actual: &f" + (claim.getCustomName() != null ? claim.getCustomName() : "&7(Sin nombre)"),
+                "&7Nombre actual: &f" + (rootClaim.getCustomName() != null ? rootClaim.getCustomName() : "&7(Sin nombre)"),
                 "",
                 "&7Escribe &f/ps rename <nombre> &7en el chat",
                 "&7para asignar un nombre personalizado."

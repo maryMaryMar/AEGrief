@@ -75,6 +75,7 @@ public class ClaimFlagCommand implements CommandExecutor, TabCompleter {
                 String newVal = current ? "deny" : "allow";
                 claim.setFlag(flag, newVal);
                 plugin.dataStore.saveClaim(claim);
+                me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener.handleFlagUpdated(plugin, claim, flag, player);
                 player.sendMessage(ChatColor.GREEN + "Flag " + ChatColor.YELLOW + flag.name().toLowerCase() + ChatColor.GREEN + " establecida a: " + (newVal.equals("allow") ? ChatColor.AQUA + "ALLOW" : ChatColor.RED + "DENY"));
             } else {
                 player.sendMessage(ChatColor.GRAY + "Valor actual de " + flag.name().toLowerCase() + ": " + ChatColor.YELLOW + claim.getFlag(flag));
@@ -87,9 +88,17 @@ public class ClaimFlagCommand implements CommandExecutor, TabCompleter {
             if (i > 1) valBuilder.append(" ");
             valBuilder.append(args[i]);
         }
-        String val = valBuilder.toString();
+        String val = valBuilder.toString().trim();
+        if (flag.getType() == ClaimFlag.FlagType.BOOLEAN) {
+            if (!val.equalsIgnoreCase("allow") && !val.equalsIgnoreCase("deny")) {
+                player.sendMessage(ChatColor.RED + "✖ Esta flag solo acepta valores: " + ChatColor.YELLOW + "allow" + ChatColor.RED + " o " + ChatColor.YELLOW + "deny" + ChatColor.RED + ".");
+                return true;
+            }
+            val = val.toLowerCase();
+        }
         claim.setFlag(flag, val);
         plugin.dataStore.saveClaim(claim);
+        me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener.handleFlagUpdated(plugin, claim, flag, player);
         player.sendMessage(ChatColor.GREEN + "Flag " + ChatColor.YELLOW + flag.name().toLowerCase() + ChatColor.GREEN + " configurada a: " + ChatColor.WHITE + val);
         return true;
     }

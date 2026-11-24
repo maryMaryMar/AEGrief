@@ -1,7 +1,7 @@
 name: AEGrief
 provides: [GriefPrevention]
 main: me.ryanhamshire.GriefPrevention.GriefPrevention
-softdepend: [Vault, Multiverse-Core, My_Worlds, MystCraft, Transporter, WorldGuard, WorldEdit, RoyalCommands, MultiWorld, Denizen, CommandHelper, UltimateClans]
+softdepend: [Vault, Multiverse-Core, My_Worlds, MystCraft, Transporter, WorldGuard, WorldEdit, RoyalCommands, MultiWorld, Denizen, CommandHelper, UltimateClans, AxSellwands]
 dev-url: https://dev.bukkit.org/projects/grief-prevention
 version: '${git.commit.id.describe}'
 api-version: '1.20'
@@ -224,6 +224,11 @@ commands:
       usage: /<command> [get|give|info|flag]
       aliases: [protectionstones, proteccion, prote]
       permission: griefprevention.claims
+    crystals:
+      description: Abre el menú de gestión de gemas y cristales del claim actual
+      usage: /<command> [menu]
+      aliases: [claimcrystals]
+      permission: griefprevention.claims
     clantrust:
       description: Modifica el nivel de confianza del clan en la protección
       usage: /<command> [build|container|access|off]
@@ -251,6 +256,34 @@ permissions:
         default: op
     aegrief.give:
         description: Permite entregar bloques de proteccion a jugadores (/ps give).
+        default: op
+    aegrief.crystal.*:
+        description: Permite activar todos los cristales de proteccion en /crystals.
+        default: op
+        children:
+            aegrief.crystal.flight: true
+            aegrief.crystal.haste: true
+            aegrief.crystal.sustenance: true
+            aegrief.crystal.phoenix: true
+            aegrief.crystal.guardian: true
+            aegrief.crystal.speed: true
+    aegrief.crystal.flight:
+        description: Permite activar el Cristal de Vuelo.
+        default: op
+    aegrief.crystal.haste:
+        description: Permite activar el Cristal de Prisa.
+        default: op
+    aegrief.crystal.sustenance:
+        description: Permite activar el Cristal de Sustento.
+        default: op
+    aegrief.crystal.phoenix:
+        description: Permite activar el Cristal Fenix.
+        default: op
+    aegrief.crystal.guardian:
+        description: Permite activar el Cristal Guardian.
+        default: op
+    aegrief.crystal.speed:
+        description: Permite activar el Cristal de Velocidad.
         default: op
     griefprevention.createclaims:
         description: Grants permission to create claims.
