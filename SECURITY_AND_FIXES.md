@@ -74,7 +74,8 @@ Este documento recopila la bitácora técnica de vulnerabilidades neutralizadas,
 
 ---
 
-## 📈 Métricas de Estabilidad
+## 📈 Métricas de Estabilidad y Despliegue
 - **Tiempo de respuesta en comprobación perimetral:** < 1.2 ms
 - **Tasa de falsos positivos en permisos:** 0%
-- **Compatibilidad verificada:** Paper 1.20.x - 1.21.x (Java) / Geyser-Floodgate (Bedrock)
+- **Compatibilidad verificada:** Paper 1.20.x - 1.21.11 (Java) / Geyser-Floodgate (Bedrock) / `UltimateClans` & `AegisClans`
+- **Despliegue directo en producción (`2026-11-24`):** Actualizado `plugins/AEGrief.jar` en `PiponMC Survival Custom (e1e37fcd)` con recarga en caliente vía `PlugManX` (`257` claims cargadas, 0 errores; respaldo en `plugins/GriefPreventionData/AEGrief.jar.bak_20261124`)
