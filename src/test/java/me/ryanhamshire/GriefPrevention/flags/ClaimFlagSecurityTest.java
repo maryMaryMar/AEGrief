@@ -333,7 +333,7 @@ class ClaimFlagSecurityTest {
 
             // 1. Access-only trust cannot trigger PHOENIX (requires ClaimPermission.Inventory)
             when(claim.checkPermission(player, ClaimPermission.Access, null)).thenReturn(null);
-            when(claim.checkPermission(player, ClaimPermission.Inventory, null)).thenReturn("No inventory trust");
+            when(claim.checkPermission(player, ClaimPermission.Inventory, null)).thenReturn(() -> "No inventory trust");
             EntityDamageEvent accessOnlyDmg = new EntityDamageEvent(player, EntityDamageEvent.DamageCause.VOID, 10.0);
             manager.onEntityDamage(accessOnlyDmg);
             assertFalse(accessOnlyDmg.isCancelled());
