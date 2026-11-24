@@ -1,8 +1,13 @@
 package me.ryanhamshire.GriefPrevention.flags;
 
 import me.ryanhamshire.GriefPrevention.Claim;
+import me.ryanhamshire.GriefPrevention.ClaimPermission;
 import me.ryanhamshire.GriefPrevention.DataStore;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
+import me.ryanhamshire.GriefPrevention.clans.UltimateClansHook;
+import me.ryanhamshire.GriefPrevention.crystal.CrystalManager;
+import me.ryanhamshire.GriefPrevention.crystal.CrystalType;
+import me.ryanhamshire.GriefPrevention.events.ClaimDeletedEvent;
 import me.ryanhamshire.GriefPrevention.protection.ProtectionBlockType;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -12,6 +17,7 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.AreaEffectCloud;
 import org.bukkit.entity.Arrow;
+import org.bukkit.entity.Boat;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Phantom;
 import org.bukkit.entity.Player;
@@ -27,17 +33,24 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.PotionSplashEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.PluginManager;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -259,5 +272,107 @@ class ClaimFlagSecurityTest {
         when(subclaim.getID()).thenReturn(null);
 
         assertEquals(42L, ClaimFlagListener.getRootClaimId(subclaim));
+    }
+
+    @Test
+    void vehicleBlockedWhenEntryDenied() {
+        GriefPrevention plugin = mock(GriefPrevention.class);
+        plugin.dataStore = mock(DataStore.class);
+        ClaimFlagListener listener = createListener(plugin);
+
+        World world = mock(World.class);
+        Location outsideLoc = new Location(world, 0, 64, 0);
+        Location insideLoc = new Location(world, 5, 64, 0);
+
+        Claim restricted = mockClaim(ClaimFlag.ENTRY, false);
+        Player intruder = mock(Player.class);
+        when(restricted.allowAccess(intruder)).thenReturn("No access");
+
+        when(plugin.dataStore.getClaimAt(outsideLoc, true, null)).thenReturn(null);
+        when(plugin.dataStore.getClaimAt(insideLoc, true, null)).thenReturn(restricted);
+
+        Boat boat = mock(Boat.class);
+        when(boat.getPassengers()).thenReturn(List.of(intruder));
+
+        VehicleMoveEvent event = new VehicleMoveEvent(boat, outsideLoc, insideLoc);
+        listener.onVehicleEntryRestriction(event);
+
+        verify(boat).removePassenger(intruder);
+        verify(intruder).teleport(outsideLoc);
+        verify(boat).teleport(outsideLoc);
+    }
+
+    @Test
+    void phoenixCooldownPersistsAcrossQuitAndRequiresInventoryAndCleansOnDelete(@TempDir Path tempDir) {
+        GriefPrevention plugin = mock(GriefPrevention.class);
+        plugin.dataStore = mock(DataStore.class);
+        when(plugin.getDataFolder()).thenReturn(tempDir.toFile());
+        when(plugin.getLogger()).thenReturn(java.util.logging.Logger.getLogger("AEGriefTest"));
+
+        try (var bukkit = mockStatic(Bukkit.class)) {
+            BukkitScheduler scheduler = mock(BukkitScheduler.class);
+            bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
+            when(scheduler.runTaskTimer(eq(plugin), any(Runnable.class), anyLong(), anyLong())).thenReturn(null);
+
+            CrystalManager manager = new CrystalManager(plugin);
+            manager.toggleCrystal(101L, CrystalType.PHOENIX);
+            assertTrue(manager.hasCrystal(101L, CrystalType.PHOENIX));
+
+            World world = mock(World.class);
+            Location loc = new Location(world, 10, 64, 10);
+            Claim claim = mock(Claim.class);
+            when(claim.getID()).thenReturn(101L);
+            when(plugin.dataStore.getClaimAt(loc, true, null)).thenReturn(claim);
+
+            Player player = mock(Player.class);
+            UUID playerId = UUID.randomUUID();
+            when(player.getUniqueId()).thenReturn(playerId);
+            when(player.getLocation()).thenReturn(loc);
+            when(player.getHealth()).thenReturn(4.0);
+            when(player.getMaxHealth()).thenReturn(20.0);
+
+            // 1. Access-only trust cannot trigger PHOENIX (requires ClaimPermission.Inventory)
+            when(claim.checkPermission(player, ClaimPermission.Access, null)).thenReturn(null);
+            when(claim.checkPermission(player, ClaimPermission.Inventory, null)).thenReturn("No inventory trust");
+            EntityDamageEvent accessOnlyDmg = new EntityDamageEvent(player, EntityDamageEvent.DamageCause.VOID, 10.0);
+            manager.onEntityDamage(accessOnlyDmg);
+            assertFalse(accessOnlyDmg.isCancelled());
+
+            // 2. Inventory trust triggers PHOENIX once
+            when(claim.checkPermission(player, ClaimPermission.Inventory, null)).thenReturn(null);
+            EntityDamageEvent lethalDmg = new EntityDamageEvent(player, EntityDamageEvent.DamageCause.FALL, 10.0);
+            manager.onEntityDamage(lethalDmg);
+            assertTrue(lethalDmg.isCancelled());
+
+            // 3. Reconnecting must NOT reset the 5-minute cooldown
+            manager.onPlayerQuit(new PlayerQuitEvent(player, "quit"));
+            EntityDamageEvent secondLethal = new EntityDamageEvent(player, EntityDamageEvent.DamageCause.FALL, 10.0);
+            manager.onEntityDamage(secondLethal);
+            assertFalse(secondLethal.isCancelled());
+
+            // 4. Deleting the root claim removes orphaned crystal entry
+            manager.onClaimDeleted(new ClaimDeletedEvent(claim));
+            assertFalse(manager.hasCrystal(101L, CrystalType.PHOENIX));
+        }
+    }
+
+    @Test
+    void ultimateClansHookRecoversWhenAegisClansEnablesLater() {
+        UltimateClansHook.resetCache();
+        try (var bukkit = mockStatic(Bukkit.class)) {
+            PluginManager pm = mock(PluginManager.class);
+            bukkit.when(Bukkit::getPluginManager).thenReturn(pm);
+
+            when(pm.getPlugin("UltimateClans")).thenReturn(null);
+            when(pm.getPlugin("AegisClans")).thenReturn(null);
+            assertFalse(UltimateClansHook.isAvailable());
+
+            Plugin aegisClans = mock(Plugin.class);
+            when(aegisClans.isEnabled()).thenReturn(true);
+            when(pm.getPlugin("AegisClans")).thenReturn(aegisClans);
+            assertTrue(UltimateClansHook.isAvailable());
+        } finally {
+            UltimateClansHook.resetCache();
+        }
     }
 }

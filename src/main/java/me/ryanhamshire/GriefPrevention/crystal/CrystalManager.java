@@ -3,6 +3,7 @@ package me.ryanhamshire.GriefPrevention.crystal;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.ClaimPermission;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
+import me.ryanhamshire.GriefPrevention.events.ClaimDeletedEvent;
 import me.ryanhamshire.GriefPrevention.flags.ClaimFlagListener;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -186,7 +187,7 @@ public class CrystalManager implements Listener {
         if (player.getHealth() - finalDamage <= 0.0) {
             Location loc = player.getLocation();
             Claim claim = plugin.dataStore.getClaimAt(loc, true, null);
-            if (claim != null && claim.checkPermission(player, ClaimPermission.Access, null) == null) {
+            if (claim != null && claim.checkPermission(player, CrystalType.PHOENIX.getRequiredPermission(), null) == null) {
                 Long rootClaimId = ClaimFlagListener.getRootClaimId(claim);
                 if (hasCrystal(rootClaimId, CrystalType.PHOENIX)) {
                     long now = System.currentTimeMillis();
@@ -212,7 +213,24 @@ public class CrystalManager implements Listener {
     }
 
     @EventHandler
+    public void onClaimDeleted(ClaimDeletedEvent event) {
+        Claim claim = event.getClaim();
+        if (claim == null || claim.parent != null) {
+            return;
+        }
+        Long id = claim.getID();
+        if (id != null && claimCrystals.remove(id) != null) {
+            save();
+        }
+    }
+
+    @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        phoenixCooldowns.remove(event.getPlayer().getUniqueId());
+        UUID uuid = event.getPlayer().getUniqueId();
+        Long expiry = phoenixCooldowns.get(uuid);
+        // Solo purgar si ya expiró; evita reiniciar el cooldown de 5 min reconectando
+        if (expiry != null && System.currentTimeMillis() >= expiry) {
+            phoenixCooldowns.remove(uuid, expiry);
+        }
     }
 }

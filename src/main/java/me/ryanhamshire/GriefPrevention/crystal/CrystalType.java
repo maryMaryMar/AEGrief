@@ -8,7 +8,7 @@ public enum CrystalType {
     FLIGHT("flight", ChatColor.AQUA + "Vuelo", Material.FEATHER, "Permite volar dentro del terreno.", ClaimPermission.Access),
     HASTE("haste", ChatColor.YELLOW + "Prisa", Material.GOLDEN_PICKAXE, "Aumenta la velocidad de minería en el terreno.", ClaimPermission.Access),
     SUSTENANCE("sustenance", ChatColor.GREEN + "Sustento", Material.BREAD, "Alimenta automáticamente a los jugadores en el terreno.", ClaimPermission.Access),
-    PHOENIX("phoenix", ChatColor.RED + "Fénix", Material.TOTEM_OF_UNDYING, "Protege de la muerte al jugador consumiéndose.", ClaimPermission.Inventory),
+    PHOENIX("phoenix", ChatColor.RED + "Fénix", Material.TOTEM_OF_UNDYING, "Evita tu muerte en el terreno (cooldown 5m).", ClaimPermission.Inventory),
     GUARDIAN("guardian", ChatColor.DARK_PURPLE + "Guardián", Material.SHIELD, "Otorga resistencia contra ataques de entidades hostiles.", ClaimPermission.Access),
     SPEED("speed", ChatColor.BLUE + "Velocidad", Material.SUGAR, "Aumenta la velocidad de movimiento en el terreno.", ClaimPermission.Access);
 

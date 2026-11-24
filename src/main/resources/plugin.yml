@@ -1,7 +1,7 @@
 name: AEGrief
 provides: [GriefPrevention]
 main: me.ryanhamshire.GriefPrevention.GriefPrevention
-softdepend: [Vault, Multiverse-Core, My_Worlds, MystCraft, Transporter, WorldGuard, WorldEdit, RoyalCommands, MultiWorld, Denizen, CommandHelper, UltimateClans, AxSellwands]
+softdepend: [Vault, Multiverse-Core, My_Worlds, MystCraft, Transporter, WorldGuard, WorldEdit, RoyalCommands, MultiWorld, Denizen, CommandHelper, UltimateClans, AegisClans, AxSellwands]
 dev-url: https://dev.bukkit.org/projects/grief-prevention
 version: '${git.commit.id.describe}'
 api-version: '1.20'

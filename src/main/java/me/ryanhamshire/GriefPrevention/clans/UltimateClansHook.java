@@ -23,7 +23,7 @@ public class UltimateClansHook {
     private static Backend backend = null;
 
     private static Backend resolveBackend() {
-        if (backend == null) {
+        if (backend == null || backend == Backend.NONE) {
             Plugin uc = Bukkit.getPluginManager().getPlugin("UltimateClans");
             if (uc != null && uc.isEnabled()) {
                 backend = Backend.ULTIMATE_CLANS;
@@ -36,8 +36,8 @@ public class UltimateClansHook {
                 available = true;
                 return backend;
             }
-            backend = Backend.NONE;
             available = false;
+            return Backend.NONE;
         }
         return backend;
     }

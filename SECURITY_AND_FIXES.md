@@ -5,14 +5,25 @@ Este documento recopila la bitácora técnica de vulnerabilidades neutralizadas,
 ---
 
 ## 📌 Resumen de Impacto
-- **Vulnerabilidades críticas prevenidas:** 2
-- **Exploits de duplicación (Dupe Glitches) corregidos:** 1
-- **Errores de compatibilidad Cross-Play (Java/Bedrock) solucionados:** 2
-- **Excepciones de compatibilidad Paper 1.21 mitigadas:** 1
+- **Vulnerabilidades críticas prevenidas:** 4
+- **Exploits de duplicación / falsificación (Dupe & PDC) corregidos:** 2
+- **Errores de compatibilidad Cross-Play (Java/Bedrock) solucionados:** 3
+- **Excepciones de compatibilidad Paper 1.21 mitigadas:** 2
 
 ---
 
 ## 🔍 Registro Detallado de Correcciones
+
+### 6. 🔒 Hardening de Flags, Proyectiles, GUIs, Cristales y Hook `AegisClans` (2026-11-23)
+- **Clasificación:** Crítica / Seguridad, Coexistencia y Rendimiento
+- **Problemas corregidos (`fc6082d` + actualización final):**
+  - **Cierre de exploits en protecciones y GUIs:** eliminado el fallback inseguro por material en claims sin bloque central (`ProtectionBlockListener`, `ProtectionConfirmGui`, `ProtectionGuiListener`) y el fallback por nombre en yunque (`ProtectionBlockType` ahora exige tag PDC); migración completa de las 3 GUIs a `InventoryHolder` tipados, limpieza en `InventoryCloseEvent` y validación de `claim.inDataStore`.
+  - **Blindaje de flags y daño indirecto (`ClaimFlagListener`, `EntityDamageHandler`):** cobertura para proyectiles, `EvokerFangs`, `AreaEffectCloud`, `TNTPrimed` y mascotas `Tameable`; bloqueo de pociones arrojadizas/persistentes en `MONSTER_DAMAGE` y `PVP`; uso de `Enemy` para incluir `Slime`/`Phantom`/`Ghast`; filtrado por bloque en fronteras para explosiones y pistones; bloqueo de vehículos (`VehicleMoveEvent`) en flag `ENTRY`.
+  - **Cristales de territorio y `AxSellwands`:** integrados `CrystalManager`, `CrystalGUI`, `CrystalCommand` (`/crystals`) y `AxSellWandsHook` (`LOWEST`). Corregido bypass de reconexión del cooldown Fénix (`PlayerQuitEvent`), validación estricta de `ClaimPermission.Inventory` en `PHOENIX`, limpieza automática al borrar el claim (`ClaimDeletedEvent`) y acceso unificado de managers en `/ps crystals`.
+  - **Integración dual `UltimateClans` / `AegisClans` y rendimiento:** añadido `AegisClans` a `softdepend`, evitado bloqueo en caché `Backend.NONE` en `UltimateClansHook`, y cacheados los `Method` handles de `Essentials` en `hasActiveRankFly`.
+  - **Cobertura de pruebas:** añadida y ampliada la suite `ClaimFlagSecurityTest` (9 tests unitarios JUnit 5 + Mockito).
+
+---
 
 ### 1. 🚨 Vulnerabilidad en Transferencia de Reclamos (`/transferclaim`)
 - **Clasificación:** Crítica (Seguridad / Integridad de Terrenos)

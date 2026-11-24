@@ -23,6 +23,7 @@ import org.bukkit.entity.Projectile;
 import org.bukkit.entity.TNTPrimed;
 import org.bukkit.entity.Tameable;
 import org.bukkit.entity.ThrownPotion;
+import org.bukkit.entity.Vehicle;
 import org.bukkit.entity.Wither;
 import org.bukkit.entity.WitherSkull;
 import org.bukkit.event.EventHandler;
@@ -55,9 +56,12 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.event.weather.LightningStrikeEvent;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.projectiles.ProjectileSource;
 
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
@@ -86,19 +90,33 @@ public class ClaimFlagListener implements Listener {
         }, 20L, 10L);
     }
 
+    // Caché de handles reflexivos de Essentials para evitar lookups cada 10 ticks
+    private static volatile Plugin cachedEssPlugin;
+    private static volatile Method cachedEssGetUser;
+    private static volatile Method cachedEssIsFlyEnabled;
+
     public static boolean hasActiveRankFly(Player player) {
         if (player == null) return false;
         try {
-            org.bukkit.plugin.Plugin essPlugin = Bukkit.getPluginManager().getPlugin("Essentials");
-            if (essPlugin != null && essPlugin.isEnabled()) {
-                java.lang.reflect.Method getUserMethod = essPlugin.getClass().getMethod("getUser", Player.class);
-                Object user = getUserMethod.invoke(essPlugin, player);
-                if (user != null) {
-                    java.lang.reflect.Method isFlyModeEnabled = user.getClass().getMethod("isFlyModeEnabled");
-                    Object res = isFlyModeEnabled.invoke(user);
-                    if (res instanceof Boolean && (Boolean) res) {
-                        return true;
-                    }
+            Plugin essPlugin = Bukkit.getPluginManager().getPlugin("Essentials");
+            if (essPlugin == null || !essPlugin.isEnabled()) {
+                return false;
+            }
+            if (cachedEssPlugin != essPlugin || cachedEssGetUser == null) {
+                cachedEssGetUser = essPlugin.getClass().getMethod("getUser", Player.class);
+                cachedEssIsFlyEnabled = null;
+                cachedEssPlugin = essPlugin;
+            }
+            Object user = cachedEssGetUser.invoke(essPlugin, player);
+            if (user != null) {
+                Method isFly = cachedEssIsFlyEnabled;
+                if (isFly == null || !isFly.getDeclaringClass().isInstance(user)) {
+                    isFly = user.getClass().getMethod("isFlyModeEnabled");
+                    cachedEssIsFlyEnabled = isFly;
+                }
+                Object res = isFly.invoke(user);
+                if (res instanceof Boolean && (Boolean) res) {
+                    return true;
                 }
             }
         } catch (Throwable ignored) {}
@@ -228,6 +246,49 @@ public class ClaimFlagListener implements Listener {
         safeFrom.setYaw(to.getYaw());
         event.setTo(safeFrom);
         sendActionBar(player, ChatColor.RED + "✖ Campo de fuerza activo: Entrada denegada a intrusos.");
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onVehicleEntryRestriction(VehicleMoveEvent event) {
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        if (from.getBlockX() == to.getBlockX() && from.getBlockY() == to.getBlockY() && from.getBlockZ() == to.getBlockZ()) {
+            return;
+        }
+
+        Claim toClaim = plugin.dataStore.getClaimAt(to, true, null);
+        if (toClaim == null || toClaim.isFlagAllowed(ClaimFlag.ENTRY)) {
+            return;
+        }
+
+        Vehicle vehicle = event.getVehicle();
+        boolean hasUnauthorizedPassenger = false;
+        Claim fromClaim = plugin.dataStore.getClaimAt(from, true, null);
+        boolean wasInside = fromClaim != null && isSameRootClaim(fromClaim, toClaim);
+
+        for (Entity passenger : vehicle.getPassengers()) {
+            if (!(passenger instanceof Player player)) {
+                continue;
+            }
+            if (player.hasPermission("griefprevention.adminclaims")
+                    || player.hasPermission("griefprevention.claimflag.bypass")
+                    || toClaim.allowAccess(player) == null) {
+                continue;
+            }
+            hasUnauthorizedPassenger = true;
+            vehicle.removePassenger(player);
+            if (wasInside) {
+                plugin.ejectPlayer(player);
+                player.sendMessage(ChatColor.RED + "✖ Has sido expulsado fuera del terreno: El propietario ha cerrado la entrada a intrusos.");
+            } else {
+                player.teleport(from);
+                sendActionBar(player, ChatColor.RED + "✖ Campo de fuerza activo: Entrada denegada a intrusos.");
+            }
+        }
+
+        if (hasUnauthorizedPassenger && !wasInside) {
+            vehicle.teleport(from);
+        }
     }
 
     /* ----------------------------------------------------

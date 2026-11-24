@@ -58,12 +58,12 @@ public class CrystalGUI implements InventoryHolder {
             this.inventory.setItem(i, filler);
         }
 
-        setupCrystalItem(11, CrystalType.FLIGHT, Material.FEATHER);
-        setupCrystalItem(12, CrystalType.HASTE, Material.GOLDEN_PICKAXE);
-        setupCrystalItem(13, CrystalType.SUSTENANCE, Material.GOLDEN_APPLE);
-        setupCrystalItem(14, CrystalType.PHOENIX, Material.TOTEM_OF_UNDYING);
-        setupCrystalItem(15, CrystalType.GUARDIAN, Material.SHIELD);
-        setupCrystalItem(16, CrystalType.SPEED, Material.SUGAR);
+        setupCrystalItem(11, CrystalType.FLIGHT, CrystalType.FLIGHT.getIcon());
+        setupCrystalItem(12, CrystalType.HASTE, CrystalType.HASTE.getIcon());
+        setupCrystalItem(13, CrystalType.SUSTENANCE, CrystalType.SUSTENANCE.getIcon());
+        setupCrystalItem(14, CrystalType.PHOENIX, CrystalType.PHOENIX.getIcon());
+        setupCrystalItem(15, CrystalType.GUARDIAN, CrystalType.GUARDIAN.getIcon());
+        setupCrystalItem(16, CrystalType.SPEED, CrystalType.SPEED.getIcon());
     }
 
     private void setupCrystalItem(int slot, CrystalType type, Material material) {
@@ -115,6 +115,11 @@ public class CrystalGUI implements InventoryHolder {
 
                 if (clicked != null && GriefPrevention.instance.crystalManager != null && event.getWhoClicked() instanceof Player) {
                     Player p = (Player) event.getWhoClicked();
+                    if (!gui.claim.inDataStore) {
+                        p.closeInventory();
+                        p.sendMessage(ChatColor.RED + "✖ Este terreno ya no existe o fue retirado.");
+                        return;
+                    }
                     boolean isOwner = gui.claim.getOwnerID() != null && gui.claim.getOwnerID().equals(p.getUniqueId());
                     boolean isAdmin = p.hasPermission("griefprevention.admin") || p.hasPermission("aegrief.admin");
                     if (!isOwner && !isAdmin && gui.claim.allowEdit(p) != null) {

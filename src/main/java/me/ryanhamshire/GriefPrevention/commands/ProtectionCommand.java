@@ -51,7 +51,9 @@ public class ProtectionCommand implements CommandExecutor, TabCompleter {
                 player.sendMessage(ChatColor.RED + "Debes estar parado dentro de un claim para ver sus cristales.");
                 return true;
             }
-            if (claim.getOwnerID() == null || (!claim.getOwnerID().equals(player.getUniqueId()) && !player.hasPermission("griefprevention.admin"))) {
+            boolean isOwner = claim.getOwnerID() != null && claim.getOwnerID().equals(player.getUniqueId());
+            boolean hasAdminPermission = player.hasPermission("griefprevention.admin") || claim.allowEdit(player) == null;
+            if (!isOwner && !hasAdminPermission) {
                 player.sendMessage(ChatColor.RED + "Solo el dueño del claim o un administrador puede gestionar los cristales.");
                 return true;
             }
